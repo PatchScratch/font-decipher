@@ -185,10 +185,70 @@
     return map;
   }
 
+  // --- content container (the anti-comments-trap utility) -------------------
+  // Comment sections can hold more paragraph text than the chapter itself
+  // (reported: Wuxiaworld et al); naive "most visible <p> text" scoring then
+  // crowns the comments. Try known platform content selectors first — each
+  // trusted only when it holds >= 3 visible paragraphs and >= 400 chars —
+  // then fall back to ancestor scoring. Returns an Element or null.
+  var KNOWN_CONTENT_SELECTORS = [
+    "div.chapter-inner", ".cha-words",        // Qidian/Webnovel (reported)
+    ".novel-content",                          // Chrysanthemum Garden (reported)
+    "#chr-content", ".chapter-content",        // Wuxiaworld, Foxaholic (reported)
+    "#chapter-c",                              // Novel Full & aggregators (reported)
+    ".post-content", ".entry-content",         // Creative Novels, WordPress blogs (reported)
+    "article"
+  ];
+
+  function elVisible(el) {
+    var p = el;
+    while (p && p !== document.body) {
+      var s = window.getComputedStyle(p);
+      if (s.display === "none" || s.visibility === "hidden" ||
+          parseFloat(s.opacity) <= 0.01) return false;
+      p = p.parentElement;
+    }
+    return el.getBoundingClientRect().height > 0;
+  }
+
+  function findContentContainer() {
+    for (var i = 0; i < KNOWN_CONTENT_SELECTORS.length; i++) {
+      var cand = document.querySelector(KNOWN_CONTENT_SELECTORS[i]);
+      if (!cand) continue;
+      var ps = cand.querySelectorAll("p");
+      var vis = 0, chars = 0;
+      for (var j = 0; j < ps.length; j++) {
+        if (!elVisible(ps[j])) continue;
+        var t = (ps[j].innerText || "").trim();
+        if (t.length > 1) { vis++; chars += t.length; }
+      }
+      if (vis >= 3 && chars >= 400) return cand;
+    }
+    // Fallback: every visible <p> credits text length to each ancestor;
+    // the highest-scoring ancestor wins. Decoy-proof against hidden text
+    // because only computed-visible paragraphs vote.
+    var score = new Map();
+    var paras = document.querySelectorAll("p");
+    for (var k = 0; k < paras.length; k++) {
+      if (!elVisible(paras[k])) continue;
+      var text = (paras[k].innerText || "").trim();
+      if (text.length < 2) continue;
+      var climb = paras[k].parentElement;
+      while (climb && climb !== document.body) {
+        score.set(climb, (score.get(climb) || 0) + text.length);
+        climb = climb.parentElement;
+      }
+    }
+    var best = null, bestScore = 0;
+    score.forEach(function (v, el) { if (v > bestScore) { best = el; bestScore = v; } });
+    return bestScore >= 400 ? best : null;
+  }
+
   global.FontDecipher = {
     looksSubstituted: looksSubstituted,
     suspiciousRatio: suspiciousRatio,
-    deriveCipherInPage: deriveCipherInPage
+    deriveCipherInPage: deriveCipherInPage,
+    findContentContainer: findContentContainer
     // decode left to callers: str.replace(/./g, c => map[c] || c) — kept out
     // so callers control their own dominance thresholds.
   };

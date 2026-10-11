@@ -89,6 +89,38 @@ genuine-CJK ratio), accepts only high-confidence glyph matches, and validates
 that the decoded sample reads like English before returning a map — a failed
 derivation returns `null` so you can fall back.
 
+## Field guide: techniques and their mitigations
+
+Intel from the NovelUpdates translation ecosystem (reported by field
+observers 2026-10-11; **only StorySeedling is verified by this project** —
+treat the rest as leads to test against, not facts).
+
+| Technique | Who (reported) | Mitigation in this toolkit |
+|---|---|---|
+| Font substitution, fixed ladder (Kangxi radicals) | storyseedling.com *(verified)* | `decipher.js`/`.py` built-in ladder; `derive_cipher.py` re-derives from the font file |
+| Font substitution, rotated per page load (renamed families like `g_font_3821a`) | Webnovel/Qidian | `deriveCipherInPage()` reads the computed font-family off a live paragraph every run — nothing is cached to go stale |
+| Ladders parked in Private Use (U+E000–U+F8FF) / CJK ranges, aimed at TTS | Chrysanthemum Garden, Danmei/BL hubs | the runtime derivation scans those blocks by default and matches glyph bitmaps wherever the letters live |
+| Partial substitution (only high-frequency letters like e/t/a) | Flying Lines, Wuxiaworld clones | the derivation maps only the substituted set — a small map is a success, gated by English-likeness validation rather than ladder dominance |
+| Hidden decoy/honeypot text (display:none, opacity:0, zero-size) | Wuxiaworld, WordPress anti-copy plugins | `findContentContainer()` votes with computed-style-visible paragraphs only |
+| Watermark tokens embedded in paragraphs (`cls1b7bcfa179…`) | storyseedling.com *(verified)* | strip with `/cls[0-9a-f]{12,}/g` before/after decoding |
+| Comments outweighing the chapter (scoring traps) | Wuxiaworld | `findContentContainer()` tries validated platform selectors first |
+| Chapters as image slices / canvas drawing | Foxaholic, light-novel hubs | no text exists to decode — detect (image-dense, textless) and render the images instead |
+
+**Pitfalls we tested so you can skip them:**
+
+- **`measureText` width matching** (a tempting shortcut): widths collide
+  across letters (`i`/`l`/`I`, `n`/`u`, `b`/`d`), and a width-keyed object
+  silently overwrites collisions. Pixel-IoU on rendered glyph bitmaps matches
+  copied outlines at exactly 1.0 for the same cost.
+- **`cloneNode` + innerText for cleanup**: a detached clone has no layout, so
+  `getComputedStyle` returns nothing and `innerText` degrades to
+  `textContent` — class-hidden honeypots slip back in. Filter the live DOM.
+- **`canvas.toDataURL()` for canvas-rendered chapters**: cross-origin taint
+  throws almost everywhere it matters. Harvest `img`/`data-src` URLs instead.
+- **Dotted `i`/`j`**: outline-table comparisons miss them (two contours);
+  bitmaps include the dots, so runtime derivation needs no special case. For
+  font-file derivation, `derive_cipher.py` fills them by sequence inference.
+
 ## Safety model
 
 `decipher()` is deliberately conservative: it only rewrites text when **substituted codepoints make up ≥ 30% of it** (configurable). Genuine Chinese/Japanese text lives in the wide CJK ranges and sails through untouched; a Latin sentence with one stray radical is left alone. `looksSubstituted(text)` exposes the check if you want to gate it yourself.
