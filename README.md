@@ -20,6 +20,7 @@ Case study that produced this tool: [storyseedling.com](https://storyseedling.co
 | `decipher.js` | Drop-in decoder for browsers/Node. Built-in StorySeedling ladder; load custom maps via `loadMap()`. Decodes only when substitution dominates the text, so genuine CJK prose is never touched. |
 | `decipher.py` | Same decoder as a Python module/CLI (stdin/stdout or files). |
 | `examples/storyseedling-vagre.json` | The derived map for storyseedling.com's font (54 mappings, reproduced by the tool). |
+| `derive_browser.js` | **Runtime derivation, in the page.** Canvas-renders suspicious codepoints and the font's own ASCII, matches by pixel IoU — no font download, no hardcoded table, rotation-proof (reads the computed font-family off a live paragraph, so per-load renamed families don't matter). Handles Private-Use ladders, shuffled permutations, and partial substitution; dotted `i`/`j` work for free. Returns `null` when the font ships no ASCII of its own. |
 
 ## Quick start
 
@@ -67,6 +68,26 @@ echo "⽕⽣⽠ ⽣⽠⽜⽭⽯⽧⽠" | python3 decipher.py
    ```bash
    python3 decipher.py page.txt -m map.json
    ```
+
+### Derive at runtime in the page (rotation / PUA / partial substitution)
+
+When you can't preprocess a font file — or the host rotates fonts per load —
+run `derive_browser.js` where the page already lives:
+
+```html
+<script src="derive_browser.js"></script>
+<script>
+  const container = document.querySelector("article");
+  const text = container.innerText;
+  const map = FontDecipher.deriveCipherInPage(text, container);  // Map | null
+  if (map) console.log([...text].map(c => map[c] || c).join(""));
+</script>
+```
+
+It gates itself on substitution heuristics (suspicious-block ratio, low
+genuine-CJK ratio), accepts only high-confidence glyph matches, and validates
+that the decoded sample reads like English before returning a map — a failed
+derivation returns `null` so you can fall back.
 
 ## Safety model
 
